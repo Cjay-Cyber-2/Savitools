@@ -13,7 +13,7 @@ import {
 
 const mockPush = jest.fn();
 
-jeST.mock('next/navigation', () => ({
+jest.mock('next/navigation', () => ({
   useRouter: () => ({
     push: mockPush,
     replace: jest.fn(),
