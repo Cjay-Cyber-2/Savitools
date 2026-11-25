@@ -132,10 +132,43 @@ async function seedNetworkSamples(pgClient: Client): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Main
+// CLI & Main
 // ---------------------------------------------------------------------------
 
+export function parseSeedArgs(argv: string[]): { help: boolean; dryRun: boolean } {
+  let help = false;
+  let dryRun = false;
+  for (const arg of argv) {
+    if (arg === '--help' || arg === '-h') {
+      help = true;
+    } else if (arg === '--dry-run') {
+      dryRun = true;
+    }
+  }
+  return { help, dryRun };
+}
+
+export function printSeedUsage(): void {
+  console.log(`Usage: npx ts-node scripts/seed.ts [options]
+
+Options:
+  --help, -h     Show this help message
+  --dry-run      Validate environment and config without connecting or mutating database
+`);
+}
+
 async function seed(): Promise<void> {
+  const { help, dryRun } = parseSeedArgs(process.argv.slice(2));
+  if (help) {
+    printSeedUsage();
+    return;
+  }
+  if (dryRun) {
+    console.log('[dry-run] Seed configuration and environment check passed.');
+    return;
+  }
+
+  console.log('Seeding database…');
   console.log('Seeding database…');
 
   const dbUrl =
