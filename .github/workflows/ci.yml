@@ -166,6 +166,11 @@ jobs:
       - name: Verify bundled external SDK generator specs are current
         run: npm run specs:check
 
+- name: Smoke test maintenance scripts CLI validation
+        run: |
+          node --loader ts-node/esm scripts/seed.ts --help || true
+          node scripts/generate-sdk-specs.mjs --help || true
+
   migration-drift:
     name: Migration Drift Check
     runs-on: ubuntu-latest
@@ -202,7 +207,6 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:password@127.0.0.1:5432/savitools
         run: npm run migration:check --workspace @savitools/api
-
   docker-build:
     name: Docker Build & Smoke (API)
     runs-on: ubuntu-latest

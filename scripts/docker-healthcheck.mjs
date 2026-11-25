@@ -1,28 +1,47 @@
 #!/usr/bin/env node
-/**
- * Container healthcheck for the api service in docker-compose.dev.yml
- * (Savitura/Savitools#250).
- *
- * A TCP connect is the right question here: the *web* container's
- * `condition: service_healthy` only needs to know that the API is listening
- * before it starts issuing requests. Probing an HTTP route would additionally
- * depend on the API prefix and on Swagger being enabled, neither of which is
- * this check's business.
- *
- * Exit code is what Compose reads: 0 = healthy, anything else = unhealthy.
- */
+import http from 'node:http';
 import net from "node:net";
 
-const port = Number(process.env.API_PORT ?? process.env.PORT ?? 3001);
-const socket = net.connect({ host: "127.0.0.1", port });
 
-socket.setTimeout(2000);
-socket.once("connect", () => {
-  socket.end();
-  process.exit(0);
+const port = Number(process.env.API_PORT ?? process.env.PORT ?? 3001);
+
+const socket = net.connect({ host: "127.0.0.1", port });
+export async function checkHealth(options = {}) {
+  const port = Number(process.env.API_PORT ?? process.env.PORT ?? 3001);
+  const prefix = process.env.API_PREFIX ? `/${process.env.API_PREFIX}` : '/api';
+  const timeoutMs = options.timeoutMs ?? 2000;
+
+  return new Promise((resolve) => {
+    const req = http.get(
+      {
+        hostname: '127.0.0.1',
+        port,
+        path: `${prefix}/v1/health`,
+        timeout: timeoutMs,
+      },
+      (res) => {
+        res.resume();
+        if (res.statusCode === 200) {
+          resolve(0);
+        } else {
+          resolve(1);
+        }
+      },
+    );
+
+    req.on('error', () => {
+      resolve(1);
 });
-socket.once("error", () => process.exit(1));
-socket.once("timeout", () => {
-  socket.destroy();
-  process.exit(1);
+
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(1);
 });
+  });
+}
+
+if (process.argv[1] && process.argv[1].endsWith('docker-healthcheck.mjs')) {
+  checkHealth().then((code) => {
+    process.exit(code);
+  });
+}

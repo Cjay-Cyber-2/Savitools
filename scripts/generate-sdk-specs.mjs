@@ -66,7 +66,7 @@ function parseYamlContent(content) {
   );
 }
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const options = {
     check: false,
     dryRun: false,
