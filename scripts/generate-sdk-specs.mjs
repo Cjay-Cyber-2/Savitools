@@ -66,7 +66,7 @@ function parseYamlContent(content) {
   );
 }
 
-export function parseArgs(argv) {
+function parseArgs(argv) {
   const options = {
     check: false,
     dryRun: false,
@@ -96,6 +96,9 @@ Options:
   -h, --help              Show help
 `);
       process.exit(0);
+    } else {
+      console.error(`Unknown option: ${arg}\nRun with --help to list supported options.`);
+      process.exit(2);
     }
   }
 

@@ -8,21 +8,15 @@ import { randomUUID } from 'crypto';
 
 function horizonUrl(network: 'testnet' | 'mainnet'): string {
   if (network === 'mainnet') {
-    return (
-      process.env.STELLAR_HORIZON_MAINNET_URL || 'https://horizon.stellar.org'
-    );
+    return process.env.STELLAR_HORIZON_MAINNET_URL || 'https://horizon.stellar.org';
   }
-  return (
-    process.env.STELLAR_HORIZON_URL || 'https://horizon-testnet.stellar.org'
-  );
+  return process.env.STELLAR_HORIZON_URL || 'https://horizon-testnet.stellar.org';
 }
 
 async function friendbotUrl(baseUrl: string): Promise<string> {
   const response = await fetch(baseUrl);
   if (!response.ok) {
-    throw new Error(
-      `Failed to fetch Horizon root at ${baseUrl}: ${response.status}`,
-    );
+    throw new Error(`Failed to fetch Horizon root at ${baseUrl}: ${response.status}`);
   }
   const root = (await response.json()) as { _links?: { friendbot?: { href?: string } } };
   const href = root._links?.friendbot?.href;
@@ -48,10 +42,10 @@ async function upsertWorkspace(
   tool: string,
   data: unknown,
 ): Promise<void> {
-  const res = await pgClient.query(
-    `SELECT id FROM workspaces WHERE user_id = $1 AND tool = $2`,
-    [userId, tool],
-  );
+  const res = await pgClient.query(`SELECT id FROM workspaces WHERE user_id = $1 AND tool = $2`, [
+    userId,
+    tool,
+  ]);
   if (res.rows.length > 0) {
     await pgClient.query(`UPDATE workspaces SET data = $1 WHERE id = $2`, [
       JSON.stringify(data),
@@ -81,9 +75,7 @@ async function waitForMigrations(pgClient: Client): Promise<void> {
       )
     `);
     if (rows[0].exists) return;
-    console.log(
-      `Waiting for migrations… attempt ${attempt}/${MAX_RETRIES}`,
-    );
+    console.log(`Waiting for migrations… attempt ${attempt}/${MAX_RETRIES}`);
     await new Promise((r) => setTimeout(r, DELAY_MS));
   }
 
@@ -110,9 +102,7 @@ async function seedNetworkSamples(pgClient: Client): Promise<void> {
       [network],
     );
     if (parseInt(rows[0].count, 10) > 0) {
-      console.log(
-        `network_samples already has recent rows for ${network} — skipping.`,
-      );
+      console.log(`network_samples already has recent rows for ${network} — skipping.`);
       continue;
     }
 
@@ -132,45 +122,77 @@ async function seedNetworkSamples(pgClient: Client): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// CLI & Main
+// CLI
 // ---------------------------------------------------------------------------
 
-export function parseSeedArgs(argv: string[]): { help: boolean; dryRun: boolean } {
-  let help = false;
-  let dryRun = false;
-  for (const arg of argv) {
-    if (arg === '--help' || arg === '-h') {
-      help = true;
-    } else if (arg === '--dry-run') {
-      dryRun = true;
-    }
-  }
-  return { help, dryRun };
-}
+const USAGE = `Usage: npx ts-node scripts/seed.ts [options]
 
-export function printSeedUsage(): void {
-  console.log(`Usage: npx ts-node scripts/seed.ts [options]
+Seeds the dev Postgres database with network samples, a dev user, Friendbot-
+funded sandbox wallets and a webhook workspace.
 
 Options:
-  --help, -h     Show this help message
-  --dry-run      Validate environment and config without connecting or mutating database
-`);
+  --dry-run    Validate DATABASE_URL and STELLAR_HORIZON_URL without connecting
+               to Postgres or calling Friendbot
+  -h, --help   Show this help message
+
+Environment:
+  DATABASE_URL          default postgresql://postgres:password@postgres:5432/savitools
+  STELLAR_HORIZON_URL   default https://horizon-testnet.stellar.org
+`;
+
+interface SeedOptions {
+  help: boolean;
+  dryRun: boolean;
 }
 
-async function seed(): Promise<void> {
-  const { help, dryRun } = parseSeedArgs(process.argv.slice(2));
-  if (help) {
-    printSeedUsage();
+function parseArgs(argv: string[]): SeedOptions {
+  const options: SeedOptions = { help: false, dryRun: false };
+  for (const arg of argv) {
+    if (arg === '--help' || arg === '-h') {
+      options.help = true;
+    } else if (arg === '--dry-run') {
+      options.dryRun = true;
+    } else {
+      throw new Error(`Unknown option: ${arg}\n\n${USAGE}`);
+    }
+  }
+  return options;
+}
+
+function assertUrl(name: string, value: string, protocols: string[]): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`${name} is not a valid URL`);
+  }
+  if (!protocols.includes(parsed.protocol)) {
+    throw new Error(`${name} must use one of: ${protocols.join(', ')} (got ${parsed.protocol})`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
+async function seed(argv: string[]): Promise<void> {
+  const options = parseArgs(argv);
+  if (options.help) {
+    process.stdout.write(USAGE);
     return;
   }
-  if (dryRun) {
-    console.log('[dry-run] Seed configuration and environment check passed.');
-    return;
-  }
-  console.log('Seeding database...');
+
   const dbUrl =
-    process.env.DATABASE_URL ||
-    'postgresql://postgres:password@postgres:5432/savitools';
+    process.env.DATABASE_URL || 'postgresql://postgres:password@postgres:5432/savitools';
+  assertUrl('DATABASE_URL', dbUrl, ['postgres:', 'postgresql:']);
+  assertUrl('STELLAR_HORIZON_URL', horizonUrl('testnet'), ['http:', 'https:']);
+
+  if (options.dryRun) {
+    console.log('Dry run: configuration is valid. No database changes made.');
+    return;
+  }
+
+  console.log('Seeding database…');
   const pgClient = new Client({ connectionString: dbUrl });
   await pgClient.connect();
 
@@ -189,17 +211,16 @@ async function seed(): Promise<void> {
       userId = res.rows[0].id;
     } else {
       userId = randomUUID();
-      await pgClient.query(
-        `INSERT INTO users (id, email) VALUES ($1, 'dev@savitools.io')`,
-        [userId],
-      );
+      await pgClient.query(`INSERT INTO users (id, email) VALUES ($1, 'dev@savitools.io')`, [
+        userId,
+      ]);
     }
 
     // Seed sandbox wallets funded via Friendbot.
     const testnetBase = horizonUrl('testnet');
     console.log('Generating and funding 2 keypairs via Friendbot…');
     const keypairs = [Keypair.random(), Keypair.random()];
-    const wallets: Record<string, unknown>[] = [];
+    const wallets: unknown[] = [];
 
     for (let i = 0; i < keypairs.length; i++) {
       const kp = keypairs[i];
@@ -228,9 +249,7 @@ async function seed(): Promise<void> {
     };
     await upsertWorkspace(pgClient, userId, 'webhooks', webhookConfig);
 
-    console.log(
-      'Seeded Postgres with dev user, sandbox wallets, and webhook config.',
-    );
+    console.log('Seeded Postgres with dev user, sandbox wallets, and webhook config.');
   } finally {
     await pgClient.end();
   }
@@ -238,7 +257,7 @@ async function seed(): Promise<void> {
   console.log('Seed complete.');
 }
 
-seed().catch((err) => {
-  console.error('Seed script failed:', err);
+seed(process.argv.slice(2)).catch((err) => {
+  console.error('Seed script failed:', err instanceof Error ? err.message : err);
   process.exit(1);
 });
